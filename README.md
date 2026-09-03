@@ -33,7 +33,7 @@ chmod +x Miniforge3.sh
 After restarting your terminal:
 
 ```bash
-mamba create -n curator_env python=3.14 -y
+mamba create -n curator_env python=3.13 -y
 mamba activate curator_env
 pip install --upgrade "synapseclient[curator,pandas]"
 pip install ipykernel
@@ -127,12 +127,12 @@ Both should print version numbers. You should also see `(base)` at the start of 
 ## Step 4: Create the Curator Environment
 
 ```bash
-mamba create -n curator_env python=3.14
+mamba create -n curator_env python=3.13
 mamba activate curator_env
 ```
 
-> **Why Python 3.14?**
-> As of `synapseclient` 4.13.0, Python 3.10–3.14 are all officially supported (per the package's `Requires-Python` metadata on [PyPI](https://pypi.org/project/synapseclient/)). Earlier versions of this guide recommended 3.12 because 3.14 had asyncio incompatibilities that broke `query_schema_registry` and other curator methods in Jupyter notebooks — that's been fixed upstream, so 3.14 is now the default.
+> **Why not Python 3.14?**
+> `synapseclient` 4.13.0 declares support for Python 3.10–3.14 on PyPI, and its CI suite passes on 3.14 — but that CI runs `pytest` directly, which never has an asyncio event loop already running when it calls the library. Jupyter/`ipykernel` does: each notebook cell executes inside an already-running event loop. `synapseclient`'s `async_to_sync()` wrapper (used by `query_schema_registry` and others) explicitly detects that combination — an active event loop **and** Python 3.14+ — and raises `RuntimeError: Python 3.14+ detected an active event loop...` instead of falling back to its usual `nest_asyncio` shim, which no longer works reliably on 3.14. On 3.10–3.13 the `nest_asyncio` fallback still applies, so notebooks work normally. Use 3.13 until an upstream fix (either an async variant of these functions, or a working 3.14 fallback) lands. See [Troubleshooting](#troubleshooting) if you hit this.
 
 ---
 
@@ -254,7 +254,7 @@ pip install ipykernel
 python -m ipykernel install --user --name curator_env --display-name "Python (curator_env)"
 ```
 
-Your `~/.synapseConfig` authentication is unaffected — it lives outside the environment. Check the [synapseclient PyPI page](https://pypi.org/project/synapseclient/) for the currently supported Python version range (`Requires-Python`) before picking a version.
+Your `~/.synapseConfig` authentication is unaffected — it lives outside the environment. Check the [synapseclient PyPI page](https://pypi.org/project/synapseclient/) for the currently supported Python version range (`Requires-Python`) before picking a version — but avoid 3.14 for notebook use regardless of what that range says; see [Step 4](#step-4-create-the-curator-environment) for why.
 
 ---
 
@@ -267,10 +267,20 @@ Run `~/miniforge3/bin/conda init <your-shell>`, then close and reopen your termi
 Run `mamba shell init --shell <your-shell> --root-prefix=$HOME/miniforge3`, then restart terminal.
 
 **`Cannot activate, prefix does not exist at .../curator_env`**
-The environment was not created yet. Run `mamba create -n curator_env python=3.12` first.
+The environment was not created yet. Run `mamba create -n curator_env python=3.13` first.
 
-**`RuntimeError: Python 3.14+ detected an active event loop`**
-Recreate the environment with Python 3.12 (Step 4). Python 3.14 is not currently compatible with synapseclient in Jupyter notebooks.
+**`RuntimeError: Python 3.14+ detected an active event loop, which prevents automatic async-to-sync conversion`**
+Your `curator_env` is running Python 3.14. `synapseclient` supports 3.14 for general/scripted use (its own test suite runs there fine), but functions like `query_schema_registry` can't auto-convert async to sync when called from inside a *already-running* event loop on 3.14+ — and Jupyter notebooks always have one running. There's no async equivalent of `query_schema_registry` to `await` around instead. Fix: recreate the environment with Python 3.13 (Step 4):
+```bash
+mamba deactivate
+mamba env remove -n curator_env
+mamba create -n curator_env python=3.13 -y
+mamba activate curator_env
+pip install --upgrade "synapseclient[curator,pandas]"
+pip install ipykernel
+python -m ipykernel install --user --name curator_env --display-name "Python (curator_env)"
+```
+Then restart the kernel in your notebook (Kernel → Restart) — the old kernel process keeps running the old Python version in memory even after you recreate the environment on disk.
 
 **`No module named ipykernel`**
 Run `pip install ipykernel` while inside the activated environment, then re-run the kernel install command from Step 6.
