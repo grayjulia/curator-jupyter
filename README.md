@@ -14,6 +14,45 @@ This guide covers setting up a Python environment to use the Synapse Curator ext
 
 ---
 
+## Quick Install (condensed)
+
+For a completely clean Mac with nothing installed yet. Install the VS Code extensions manually (Step 2), then run:
+
+```bash
+# Install Miniforge3 to ~/miniforge3 — do not move this folder later, see Troubleshooting
+cd ~/Downloads
+curl -fsSL -o Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh"
+chmod +x Miniforge3.sh
+./Miniforge3.sh -b -p "$HOME/miniforge3"
+
+# Replace <your-shell> with bash or zsh (see Step 1), then restart your terminal
+~/miniforge3/bin/conda init <your-shell>
+~/miniforge3/bin/mamba shell init --shell <your-shell> --root-prefix=$HOME/miniforge3
+```
+
+After restarting your terminal:
+
+```bash
+mamba create -n curator_env python=3.14 -y
+mamba activate curator_env
+pip install --upgrade "synapseclient[curator,pandas]"
+pip install ipykernel
+python -m ipykernel install --user --name curator_env --display-name "Python (curator_env)"
+
+# Replace YOUR_TOKEN_HERE with your Synapse PAT (see Step 7a)
+cat > ~/.synapseConfig << 'EOF'
+[authentication]
+authtoken = YOUR_TOKEN_HERE
+EOF
+
+# Verify everything works end to end
+python -c "import synapseclient; syn = synapseclient.Synapse(); syn.login(); print(syn.getUserProfile()['userName'])"
+```
+
+Then in VS Code, open a notebook and select the **Python (curator_env)** kernel. The numbered steps below cover each stage in more detail, plus troubleshooting.
+
+---
+
 ## Step 1: Check Your Shell
 
 This guide works with either **bash** or **zsh** (macOS default). Check which shell you are using:
@@ -88,12 +127,12 @@ Both should print version numbers. You should also see `(base)` at the start of 
 ## Step 4: Create the Curator Environment
 
 ```bash
-mamba create -n curator_env python=3.12
+mamba create -n curator_env python=3.14
 mamba activate curator_env
 ```
 
-> **Why Python 3.12?**
-> The Curator developers confirmed Python 3.11–3.13 is supported for notebook use. Python 3.14+ has asyncio incompatibilities with `synapseclient` in Jupyter notebooks that prevent `query_schema_registry` and other methods from working correctly. See the [Upgrading](#upgrading) section for what to do when 3.14 support is added.
+> **Why Python 3.14?**
+> As of `synapseclient` 4.13.0, Python 3.10–3.14 are all officially supported (per the package's `Requires-Python` metadata on [PyPI](https://pypi.org/project/synapseclient/)). Earlier versions of this guide recommended 3.12 because 3.14 had asyncio incompatibilities that broke `query_schema_registry` and other curator methods in Jupyter notebooks — that's been fixed upstream, so 3.14 is now the default.
 
 ---
 
@@ -188,9 +227,7 @@ print(results)
 
 ---
 
-## Upgrading
-
-### Upgrading synapseclient (keeping your current Python version)
+## Upgrading synapseclient
 
 To get the latest version of synapseclient and Curator without touching your Python version:
 
@@ -205,37 +242,19 @@ Check what version you currently have:
 pip show synapseclient
 ```
 
-### Upgrading to Python 3.14 (when Curator supports it)
-
-As of this writing, Python 3.14 is **not** compatible with `synapseclient` in Jupyter notebooks due to asyncio changes. The Curator developers are aware of this. When support is announced, you can migrate your environment like this:
-
-**Option A: Recreate the environment (cleanest)**
+If you need to move to a different Python version later, recreate the environment rather than upgrading Python in place — it avoids dependency conflicts:
 
 ```bash
 mamba deactivate
 mamba env remove -n curator_env
-mamba create -n curator_env python=3.14
+mamba create -n curator_env python=<version>
 mamba activate curator_env
 pip install --upgrade "synapseclient[curator,pandas]"
 pip install ipykernel
 python -m ipykernel install --user --name curator_env --display-name "Python (curator_env)"
 ```
 
-Your `~/.synapseConfig` authentication is unaffected — it lives outside the environment.
-
-**Option B: Update Python in place (faster, but less reliable)**
-
-```bash
-mamba activate curator_env
-mamba install python=3.14
-pip install --upgrade "synapseclient[curator,pandas]"
-```
-
-Option A is recommended — it avoids potential dependency conflicts from upgrading Python in an existing environment.
-
-### How to check if 3.14 support has been added
-
-Check the [synapseclient releases page](https://github.com/Sage-Bionetworks/synapsePythonClient/releases) or their changelog for notes about Python 3.14 asyncio compatibility.
+Your `~/.synapseConfig` authentication is unaffected — it lives outside the environment. Check the [synapseclient PyPI page](https://pypi.org/project/synapseclient/) for the currently supported Python version range (`Requires-Python`) before picking a version.
 
 ---
 
@@ -258,3 +277,11 @@ Run `pip install ipykernel` while inside the activated environment, then re-run 
 
 **`bash: !': event not found`**
 Bash is interpreting `!` as a history expansion character. Rewrite your print statement to avoid `!`, e.g. use `print('success')`.
+
+**`conda`/`mamba` stopped working, or the kernel can't be found, after everything used to work**
+Conda environments hardcode absolute paths at creation time (in script shebangs and activation scripts), so moving the `~/miniforge3` folder — even to another location under your home directory, e.g. into `~/Applications/` — silently breaks it. Signs of this:
+- `~/.bash_profile` / `~/.zshrc` sets `MAMBA_ROOT_PREFIX` to a path that no longer exists (`grep MAMBA_ROOT_PREFIX ~/.bash_profile ~/.zshrc`).
+- `~/Library/Jupyter/kernels/curator_env/kernel.json` points its `python` argv at a path that doesn't exist (`cat` the file and check).
+- Running any script inside the environment (e.g. `pip`) fails with `bad interpreter: No such file or directory`.
+
+Don't try to move the folder back — reinstall Miniforge fresh at `~/miniforge3` and recreate `curator_env` (Steps 3–6). If you have leftover broken installs elsewhere (e.g. in `~/Applications/`), delete them once you've confirmed nothing else depends on them.
